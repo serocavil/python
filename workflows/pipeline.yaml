@@ -1,14 +1,7 @@
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
-      persist-credentials: true
-
   - name: Configure Git
     run: |
-      git config user.name "github-actions"
-      git config user.email "actions@github.com"
+      git config user.name "github-actions[bot]"
+      git config user.email "github-actions[bot]@users.noreply.github.com"
 
   - name: Generate new tag
     id: tag
@@ -38,4 +31,4 @@ steps:
         -H "Authorization: Bearer ${{ secrets.SERVER_TOKEN }}" \
         -H "Content-Type: application/json" \
         -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
-        ${{ secrets.SERVER_DEPLOY_URL }}
+        https://your-server.example/api/deploy
