@@ -1,0 +1,44 @@
+name: Auto Tag and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+      - name: Generate new tag
+        id: tag
+        run: |
+          # Obtener el último tag (si no hay, empieza en v0.0.0)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Último tag: $LAST_TAG"
+
+          # Dividir por puntos y sumar versión de parche
+          IFS='.' read -r major minor patch <<<"${LAST_TAG#v}"
+          NEW_TAG="v$major.$minor.$((patch + 1))"
+          echo "Nuevo tag: $NEW_TAG"
+
+          git tag $NEW_TAG
+          git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }} $NEW_TAG
+
+          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Llamar al servidor vía API
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.SERVER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
+            ${{ secrets.SERVER_DEPLOY_URL }}
