@@ -1,0 +1,45 @@
+name: Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+      - name: Create auto tag
+        id: tag
+        run: |
+          # Obtener el número de último tag
+          LAST_TAG=$(git describe --tags --abbrev=0 || echo "v0.0.0")
+          echo "Último tag: $LAST_TAG"
+          # Incrementar versión
+          NEW_TAG=$(echo $LAST_TAG | awk -F. '{printf "v%d.%d.%d", $1, $2, $3+1}')
+          echo "Nuevo tag: $NEW_TAG"
+          git tag $NEW_TAG
+          git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }} $NEW_TAG
+          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Ejecutar script remoto en el servidor
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PASS: ${{ secrets.SERVER_PASS }}
+        run: |
+          # Ejemplo usando SSH sin clave (solo contraseña)
+          sudo apt-get update && sudo apt-get install -y sshpass
+          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "cd /ruta/proyecto && git pull && ./deploy.sh"
+
+      - name: Confirmar despliegue
+        run: echo "Despliegue completado con tag ${{ steps.tag.outputs.tag }}"
