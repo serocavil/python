@@ -1,34 +1,58 @@
-  - name: Configure Git
-    run: |
-      git config user.name "github-actions[bot]"
-      git config user.email "github-actions[bot]@users.noreply.github.com"
+name: Auto release tag
 
-  - name: Generate new tag
-    id: tag
-    run: |
-      set -euo pipefail
+on:
+  push:
+    branches:
+      - main
 
-      # Obtener el último tag que cumpla vMAJOR.MINOR.PATCH (si no hay, empieza en v0.0.0)
-      LAST_TAG=$(git for-each-ref --sort=-v:refname --format='%(refname:strip=2)' refs/tags \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-        | head -n1 || echo "v0.0.0")
-      echo "Último tag: $LAST_TAG"
+permissions:
+  contents: write
 
-      # Extraer números y aumentar parche
-      IFS='.' read -r major minor patch <<<"${LAST_TAG#v}"
-      NEW_TAG="v${major}.${minor}.$((patch + 1))"
-      echo "Nuevo tag: $NEW_TAG"
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
-      # Crear y empujar el tag usando las credenciales persistidas
-      git tag "$NEW_TAG"
-      git push origin "refs/tags/$NEW_TAG"
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
+      - name: Generate new tag
+        id: tag
+        run: |
+          set -euo pipefail
 
-  - name: Llamar al servidor vía API
-    run: |
-      curl -s -X POST \
-        -H "Authorization: Bearer ${{ secrets.SERVER_TOKEN }}" \
-        -H "Content-Type: application/json" \
-        -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
-        https://your-server.example/api/deploy
+          # Asegurarse de tener las tags remotas
+          git fetch --tags origin
+
+          # Obtener último tag que cumpla vMAJOR.MINOR.PATCH (si no hay, empieza en v0.0.0)
+          LAST_TAG=$(git tag --list 'v*.*.*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || echo "v0.0.0")
+          echo "Último tag: $LAST_TAG"
+
+          # Extraer números y aumentar parche
+          IFS='.' read -r major minor patch <<<"${LAST_TAG#v}"
+          NEW_TAG="v${major}.${minor}.$((patch + 1))"
+          echo "Nuevo tag: $NEW_TAG"
+
+          # Crear tag anotado y empujar (GITHUB_TOKEN será usado por persist-credentials)
+          git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+          git push origin "refs/tags/$NEW_TAG"
+
+          # Exportar salida
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Llamar al servidor vía API
+        env:
+          SERVER_TOKEN: ${{ secrets.SERVER_TOKEN }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $SERVER_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
+            https://your-server.example/api/deploy
