@@ -1,44 +1,41 @@
-name: Auto Tag and Deploy
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+      persist-credentials: true
 
-on:
-  push:
-    branches:
-      - main
+  - name: Configure Git
+    run: |
+      git config user.name "github-actions"
+      git config user.email "actions@github.com"
 
-jobs:
-  tag-and-deploy:
-    runs-on: ubuntu-latest
+  - name: Generate new tag
+    id: tag
+    run: |
+      set -euo pipefail
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # Obtener el último tag que cumpla vMAJOR.MINOR.PATCH (si no hay, empieza en v0.0.0)
+      LAST_TAG=$(git for-each-ref --sort=-v:refname --format='%(refname:strip=2)' refs/tags \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | head -n1 || echo "v0.0.0")
+      echo "Último tag: $LAST_TAG"
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
+      # Extraer números y aumentar parche
+      IFS='.' read -r major minor patch <<<"${LAST_TAG#v}"
+      NEW_TAG="v${major}.${minor}.$((patch + 1))"
+      echo "Nuevo tag: $NEW_TAG"
 
-      - name: Generate new tag
-        id: tag
-        run: |
-          # Obtener el último tag (si no hay, empieza en v0.0.0)
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          echo "Último tag: $LAST_TAG"
+      # Crear y empujar el tag usando las credenciales persistidas
+      git tag "$NEW_TAG"
+      git push origin "refs/tags/$NEW_TAG"
 
-          # Dividir por puntos y sumar versión de parche
-          IFS='.' read -r major minor patch <<<"${LAST_TAG#v}"
-          NEW_TAG="v$major.$minor.$((patch + 1))"
-          echo "Nuevo tag: $NEW_TAG"
+      echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
 
-          git tag $NEW_TAG
-          git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }} $NEW_TAG
-
-          echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
-
-      - name: Llamar al servidor vía API
-        run: |
-          curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.SERVER_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
-            ${{ secrets.SERVER_DEPLOY_URL }}
+  - name: Llamar al servidor vía API
+    run: |
+      curl -s -X POST \
+        -H "Authorization: Bearer ${{ secrets.SERVER_TOKEN }}" \
+        -H "Content-Type: application/json" \
+        -d "{\"repository\": \"${{ github.repository }}\", \"tag\": \"${{ steps.tag.outputs.tag }}\"}" \
+        ${{ secrets.SERVER_DEPLOY_URL }}
